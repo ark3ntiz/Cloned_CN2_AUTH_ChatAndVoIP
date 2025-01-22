@@ -8,6 +8,7 @@ import javax.swing.JTextField;
 import javax.swing.JButton;
 import javax.swing.JTextArea;
 import javax.swing.JScrollPane;
+import javax.sound.sampled.*;
 
 import java.awt.event.ActionListener;
 import java.awt.event.ActionEvent;
@@ -31,7 +32,9 @@ public class App extends Frame implements WindowListener, ActionListener {
 	static JButton callButton;				
 	
 	// TODO: Please define and initialize your variables here...
-	
+	public String ipAddress = "192.168.1.8";
+	public int textChatPort = 12345;
+	public int voiceChatPort = 12346;
 	/**
 	 * Construct the app's frame and initialize important parameters
 	 */
@@ -80,6 +83,102 @@ public class App extends Frame implements WindowListener, ActionListener {
 		
 	}
 	
+	public void sendMessage(String message) {
+		try {
+			DatagramSocket socket = new DatagramSocket();
+			InetAddress address = InetAddress.getByName(ipAddress);
+			
+			byte[] buffer = message.getBytes();
+			DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, textChatPort);
+			socket.send(packet);
+			
+			textArea.append("Me: "+message+"\n");
+//			socket.close();
+		} catch(Exception e) {
+			System.out.println(e);
+		}
+	}
+	
+	public void startReceiver() {
+		new Thread(() -> {
+			try {
+				DatagramSocket socket = new DatagramSocket(textChatPort);
+				byte[] buffer = new byte[1024];
+				DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+				
+				System.out.println("Waiting for messages...");
+				while(true) {
+					socket.receive(packet);
+					String message = new String(packet.getData(), 0, packet.getLength());
+					textArea.append("You: "+message+"\n");
+				}
+			} catch(Exception ex) {
+				System.out.println(ex);
+			}
+		}).start();
+	}
+	
+	public void startCall() throws Exception{
+		AudioFormat format = new AudioFormat(8000.0f, 8, 1, true, true);
+		
+		DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+		TargetDataLine microphone = (TargetDataLine) AudioSystem.getLine(info);
+		System.out.println(microphone);
+		if(!AudioSystem.isLineSupported(info)) {
+			System.out.println("Not supported");
+		}
+		microphone.open(format);
+		microphone.start();
+		
+		DatagramSocket socket = new DatagramSocket();
+		InetAddress targetAddress = InetAddress.getByName(ipAddress);
+		
+		byte[] buffer = new byte[1024];
+		
+		System.out.println("Call started...");
+		
+		while(true) {
+			//Get the audio from the microphone
+//			System.out.println("MIC WORKING");
+			int bytesRead = microphone.read(buffer, 0, buffer.length);
+			
+			//Send audio data
+			DatagramPacket packet = new DatagramPacket(buffer, bytesRead, targetAddress, voiceChatPort);
+			socket.send(packet);
+			
+		}
+		
+	}
+	
+	public void startCallReceiver(){
+		new Thread(() -> {
+			try {
+				AudioFormat format = new AudioFormat(8000.0f, 8, 1, true, true);
+				DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
+				SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info);
+				speakers.open(format);
+				speakers.start();
+				
+				DatagramSocket socket = new DatagramSocket(voiceChatPort);
+				
+				byte[] buffer = new byte[1024];
+				DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+				
+				System.out.println("Waiting for voice...");
+				
+				while(true) {
+//					System.out.println("DOULEVEI");
+					socket.receive(packet);
+					speakers.write(packet.getData(), 0, packet.getLength());
+//					System.out.println("Audio packet size: "+packet.getLength());
+				}
+			}catch(Exception ex) {
+				System.out.println(ex);
+			}
+		}).start();
+		
+	}
+	
 	/**
 	 * The main method of the application. It continuously listens for
 	 * new messages.
@@ -92,11 +191,18 @@ public class App extends Frame implements WindowListener, ActionListener {
 		App app = new App("CN2 - AUTH");  // TODO: You can add the title that will displayed on the Window of the App here																		  
 		app.setSize(500,250);				  
 		app.setVisible(true);				  
-
+		
+		
+		
+		app.startCallReceiver();
+		app.startReceiver();
 		/*
 		 * 2. 
 		 */
+		
 		do{		
+//			app.startReceiver();
+//			app.startCallReceiver();
 			// TODO: Your code goes here...
 		}while(true);
 	}
@@ -118,6 +224,11 @@ public class App extends Frame implements WindowListener, ActionListener {
 			// The "Send" button was clicked
 			
 			// TODO: Your code goes here...
+			String message = inputTextField.getText();
+			if(!message.isEmpty()) {
+				sendMessage(message);
+				inputTextField.setText("");
+			}
 		
 			
 		}else if(e.getSource() == callButton){
@@ -125,11 +236,15 @@ public class App extends Frame implements WindowListener, ActionListener {
 			// The "Call" button was clicked
 			
 			// TODO: Your code goes here...
-			
+			new Thread(() -> {
+				try {
+					startCall();
+				} catch(Exception ex) {
+					System.out.println(ex);
+				}
+			}).start();
 			
 		}
-			
-
 	}
 
 	/**
